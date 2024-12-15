@@ -1,3 +1,4 @@
+from models import Manager, Controller, Imagination, Memory
 import gymnasium as gym
 
 def train(episodes, env):
