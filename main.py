@@ -5,17 +5,18 @@ import torch
 def train(episodes, env, n_max_real_steps, n_max_imagined_steps):
     state_size = len(env.observation_space)
     action_size = env.action_space.n
-    history_size = 16 #TODO
+    history_size = state_size*2 + 5  #x_real, x_imagined, a, u, n_real, n_imagined, reward
 
     manager = Manager(state_size, history_size)
     controller = Controller(state_size, history_size, action_size)
     imagination = Imagination(state_size, action_size)
-    memory = Memory(history_size, history_size)#TODO
+    memory = Memory(history_size, history_size)
+
 
     for ep in range(episodes):
         s, _ = env.reset()
 
-        history = torch.zeros(history_size)#TODO
+        history = torch.zeros(history_size)
         n_real, n_imagined = 0, 0
         x_real, x_imagined = s, s
 
@@ -38,10 +39,12 @@ def train(episodes, env, n_max_real_steps, n_max_imagined_steps):
 
             if u == 2:
                 a = controller(x_imagined, history)
-                x_imagined = imagination(x_imagined, a)
+                x_imagined, r = imagination(x_imagined, a)
                 n_imagined += 1
 
-            history = memory(history)#TODO
+            d = torch.cat([u, a, r, x_real, x_imagined, n_real, n_imagined])
+            history = memory(d)
+        
             if done or truncated:
                 break
 

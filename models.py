@@ -54,6 +54,6 @@ class Memory(nn.Module):
         super(Memory, self).__init__()
         self.lstm = nn.LSTM(input_size, hidden_size=history_size, num_layers=num_layers)
 
-    def forward(self, input):
-        output, _ = self.lstm(input)
+    def forward(self, d):
+        output, _ = self.lstm(d)
         return output[-1, :] #consider only last time step
