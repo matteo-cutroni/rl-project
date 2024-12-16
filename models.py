@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 
-class Manager(nn.Module()):
+class Manager(nn.Module):
     def __init__(self, state_size, history_size, hidden_size=32):
         super(Manager, self).__init__()
         self.fc1 = nn.Linear(state_size + history_size, hidden_size)
@@ -17,7 +17,7 @@ class Manager(nn.Module()):
         route = self.softmax(x)
         return route
     
-class Controller(nn.Module()):
+class Controller(nn.Module):
     def __init__(self, state_size, history_size, action_size, hidden_size=16):
         super(Controller, self).__init__()
         self.fc1 = nn.Linear(state_size + history_size, hidden_size)
@@ -32,7 +32,7 @@ class Controller(nn.Module()):
         action = self.softmax(x)
         return action
     
-class Imagination(nn.Module()):
+class Imagination(nn.Module):
     def __init__(self, state_size, action_size, hidden_size=64):
         super(Imagination, self).__init__()
         self.fc1 = nn.Linear(state_size + action_size, hidden_size)
@@ -49,10 +49,10 @@ class Imagination(nn.Module()):
         reward = self.fc_reward(x)
         return next_state, reward
     
-class Memory(nn.Module()):
-    def __init__(self, input_size, hidden_size=32, num_layers=2):
+class Memory(nn.Module):
+    def __init__(self, input_size, history_size, num_layers=2):
         super(Memory, self).__init__()
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers)
+        self.lstm = nn.LSTM(input_size, hidden_size=history_size, num_layers=num_layers)
 
     def forward(self, input):
         output, _ = self.lstm(input)
