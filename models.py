@@ -8,10 +8,10 @@ class Manager(nn.Module):
         self.fc1 = nn.Linear(state_size + history_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, 3) # 0: act, 1:imagine from current state, 2: imagine from previously imagined state
         self.relu = nn.ReLU()
-        self.softmax = nn.Softmax(0)
+        self.softmax = nn.Softmax(-1)
 
     def forward(self, state, history):
-        x = torch.cat((state, history), dim=-1)
+        x = torch.cat([state, history], dim=-1)
         x = self.relu(self.fc1(x))
         x = self.relu(self.fc2(x))
         route = self.softmax(x)
@@ -23,10 +23,10 @@ class Controller(nn.Module):
         self.fc1 = nn.Linear(state_size + history_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, action_size)
         self.relu = nn.ReLU()
-        self.softmax = nn.Softmax(0)
+        self.softmax = nn.Softmax(-1)
 
     def forward(self, state, history):
-        x = torch.cat((state, history), dim=-1)
+        x = torch.cat([state, history], dim=-1)
         x = self.relu(self.fc1(x))
         x = self.relu(self.fc2(x))
         action = self.softmax(x)
@@ -42,8 +42,7 @@ class Imagination(nn.Module):
         self.relu = nn.ReLU()
 
     def forward(self, state, action):
-        x = torch.cat((state, action), dim=-1)
-        x = x.type(torch.float32)
+        x = torch.cat([state, action], dim=-1)
         x = self.relu(self.fc1(x))
         x = self.relu(self.fc2(x))
         next_state = self.fc_state(x)
@@ -53,8 +52,8 @@ class Imagination(nn.Module):
 class Memory(nn.Module):
     def __init__(self, input_size, history_size, num_layers=2):
         super(Memory, self).__init__()
-        self.lstm = nn.LSTM(input_size, hidden_size=history_size, num_layers=num_layers)
+        self.lstm = nn.LSTM(input_size, hidden_size= history_size, num_layers=num_layers)
 
     def forward(self, d):
         output, _ = self.lstm(d)
-        return output[-1, :] #consider only last time step
+        return output[-1, :]

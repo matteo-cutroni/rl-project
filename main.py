@@ -17,31 +17,45 @@ def train(episodes, n_max_real_steps, n_max_imagined_steps, gamma):
     imagination = Imagination(state_size)
     memory = Memory(history_size, history_size)
 
+    imagination_optim = torch.optim.Adam(imagination.parameters(), lr=1e-3)
+    manager_optim = torch.optim.Adam(manager.parameters(), lr=1e-3)
+
+    manager.train()
+    controller.train()
+    imagination.train()
+    memory.train()
+
     for ep in range(episodes):
         s, _ = env.reset()
-        s = torch.tensor(s)
+        s = torch.tensor(s).float()
 
-        history = torch.zeros(history_size)
         n_real, n_imagined = 0, 0
         x_real, x_imagined = s, s
+
+        history = torch.zeros(history_size)
 
         real_states, imagined_states = [], []
         real_rewards, imagined_rewards = [], []
 
+        external_log_probs_manager = []
+        tot_imagination_steps = 0
+
         done, truncated = False, False
 
         while n_real < n_max_real_steps:
-            u = torch.argmax(manager(x_real, history)).unsqueeze(0)
-            print(u)
+            u_probs = manager(x_real, history)
+            manager_log_probs = torch.log(u_probs)
+            u = torch.argmax(u_probs).unsqueeze(0)
 
             if u == 0 or n_imagined > n_max_imagined_steps:
-                print('taking action')
+                external_log_probs_manager.append(manager_log_probs[0])
 
                 a = torch.argmax(controller(x_real, history)).unsqueeze(0)
+                a = torch.tensor(a).float()
 
-                x_real, r, done, truncated, _ = env.step(a.item())
-                x_real = torch.tensor(x_real)
-                r = torch.tensor([r])
+                x_real, r, done, truncated, _ = env.step(int(a.item()))
+                x_real = torch.tensor(x_real).float()
+                r = torch.tensor([r]).float()
 
                 real_states.append(x_real)
                 real_rewards.append(r)
@@ -54,42 +68,62 @@ def train(episodes, n_max_real_steps, n_max_imagined_steps, gamma):
                 n_imagined = 0
                 x_imagined = x_real
 
-                print(done, truncated)
-
             elif u == 1:
-                print('imagining', n_imagined)
                 a = torch.argmax(controller(x_real, history)).unsqueeze(0)
+                a = torch.tensor(a).float()
                 x_imagined, r = imagination(x_real, a)
+                x_imagined = torch.tensor(x_imagined).float()
+                r = torch.tensor([r]).float()
                 n_imagined += 1
+                tot_imagination_steps += 1
 
             elif u == 2:
-                print('imagining', n_imagined)
                 a = torch.argmax(controller(x_real, history)).unsqueeze(0)
+                a = torch.tensor(a).float()
                 x_imagined, r = imagination(x_imagined, a)
+                x_imagined = torch.tensor(x_imagined).float()
+                r = torch.tensor([r]).float()
                 n_imagined += 1
+                tot_imagination_steps += 1
 
             d = torch.cat([u, a, r, x_real, x_imagined, torch.tensor([n_real]), torch.tensor([n_imagined])]).unsqueeze(0)
             history = memory(d)
         
             if done or truncated:
-                print(r)
+                print(f"Ended episode {ep+1}\n")
                 break
 
-        #TODO arrays to tensor    
+        #imagination loss
+        imagined_states = torch.stack([s for s in imagined_states], dim=0)
+        real_states = torch.stack([s.type(torch.FloatTensor) for s in real_states], dim=0)
+        imagined_rewards = torch.stack([s for s in imagined_rewards], dim=0)
+        real_rewards = torch.stack([s for s in real_rewards], dim=0)
         imagination_loss = F.mse_loss(imagined_states, real_states) + F.mse_loss(imagined_rewards, real_rewards)
+        imagination_optim.zero_grad()
+        imagination_loss.backward()
+        imagination_optim.step()
 
-        manager_loss = 0
-        rewards = real_rewards + imagined_rewards
-        print(rewards)
-        discounts = np.power(gamma, np.arange(len(rewards)))
+        #manager loss
+        external_loss_manager = 0
+        discounts = torch.pow(gamma, torch.arange(len(real_rewards)))
 
-
+        for t in range(len(real_rewards)):
+            G = (discounts[:len(real_rewards)-t]*real_rewards[t:]).sum()
+            external_loss_manager = external_loss_manager -(gamma**t)*G*external_log_probs_manager[t]
+        
+        imagination_cost = 0.1
+        internal_loss = imagination_cost*tot_imagination_steps #I consider the internal loss as a penalty fo imagining
+        
+        manager_loss = -(external_loss_manager + internal_loss)
+        manager_optim.zero_grad()
+        manager_loss.backward()
+        manager_optim.step()
 
 
 
 if __name__ == '__main__':
     episodes = 10
-    n_max_real_steps = 5
+    n_max_real_steps = 100
     n_max_imagined_steps = 5
     gamma = 0.9
 
