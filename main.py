@@ -19,6 +19,7 @@ def train(episodes, n_max_real_steps, n_max_imagined_steps, gamma):
 
     imagination_optim = torch.optim.Adam(imagination.parameters(), lr=1e-3)
     manager_optim = torch.optim.Adam(manager.parameters(), lr=1e-3)
+    con_mem_optim = torch.optim.Adam(list(controller.parameters())+list(memory.parameters()), lr=1e-3)
 
     manager.train()
     controller.train()
@@ -40,6 +41,9 @@ def train(episodes, n_max_real_steps, n_max_imagined_steps, gamma):
         external_log_probs_manager = []
         tot_imagination_steps = 0
 
+        log_probs_controller = []
+        tot_rewards = []
+
         done, truncated = False, False
 
         while n_real < n_max_real_steps:
@@ -50,12 +54,15 @@ def train(episodes, n_max_real_steps, n_max_imagined_steps, gamma):
             if u == 0 or n_imagined > n_max_imagined_steps:
                 external_log_probs_manager.append(manager_log_probs[0])
 
-                a = torch.argmax(controller(x_real, history)).unsqueeze(0)
+                a_probs = controller(x_real, history)
+                a = torch.argmax(a_probs).unsqueeze(0)
+                log_probs_controller.append(torch.log(a_probs[a]))
                 a = torch.tensor(a).float()
 
                 x_real, r, done, truncated, _ = env.step(int(a.item()))
                 x_real = torch.tensor(x_real).float()
                 r = torch.tensor([r]).float()
+                tot_rewards.append(r)
 
                 real_states.append(x_real)
                 real_rewards.append(r)
@@ -69,20 +76,26 @@ def train(episodes, n_max_real_steps, n_max_imagined_steps, gamma):
                 x_imagined = x_real
 
             elif u == 1:
-                a = torch.argmax(controller(x_real, history)).unsqueeze(0)
+                a_probs = controller(x_real, history)
+                a = torch.argmax(a_probs).unsqueeze(0)
+                log_probs_controller.append(torch.log(a_probs[a]))
                 a = torch.tensor(a).float()
                 x_imagined, r = imagination(x_real, a)
                 x_imagined = torch.tensor(x_imagined).float()
                 r = torch.tensor([r]).float()
+                tot_rewards.append(r)
                 n_imagined += 1
                 tot_imagination_steps += 1
 
             elif u == 2:
-                a = torch.argmax(controller(x_real, history)).unsqueeze(0)
+                a_probs = controller(x_real, history)
+                a = torch.argmax(a_probs).unsqueeze(0)
+                log_probs_controller.append(torch.log(a_probs[a]))
                 a = torch.tensor(a).float()
                 x_imagined, r = imagination(x_imagined, a)
                 x_imagined = torch.tensor(x_imagined).float()
                 r = torch.tensor([r]).float()
+                tot_rewards.append(r)
                 n_imagined += 1
                 tot_imagination_steps += 1
 
@@ -109,17 +122,28 @@ def train(episodes, n_max_real_steps, n_max_imagined_steps, gamma):
 
         for t in range(len(real_rewards)):
             G = (discounts[:len(real_rewards)-t]*real_rewards[t:]).sum()
-            external_loss_manager = external_loss_manager -(gamma**t)*G*external_log_probs_manager[t]
+            external_loss_manager += -(gamma**t)*G*external_log_probs_manager[t]
         
         imagination_cost = 0.1
         internal_loss = imagination_cost*tot_imagination_steps #I consider the internal loss as a penalty fo imagining
         
         manager_loss = -(external_loss_manager + internal_loss)
         manager_optim.zero_grad()
-        manager_loss.backward()
+        manager_loss.backward(retain_graph=True)
         manager_optim.step()
 
+        #controller and memory loss
+        con_mem_loss = 0
+        discounts_tot = torch.pow(gamma, torch.arange(len(tot_rewards)))
+        tot_rewards = torch.stack([s for s in tot_rewards], dim=0)
+        for t in range(len(tot_rewards)):
+            G = (discounts_tot[:len(tot_rewards)-t]*tot_rewards[t:]).sum()
+            con_mem_loss += -(gamma**t)*G*log_probs_controller[t]
+        con_mem_optim.zero_grad()
+        con_mem_loss.backward()
+        con_mem_optim.step()
 
+        
 
 if __name__ == '__main__':
     episodes = 10
